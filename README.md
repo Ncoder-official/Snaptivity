@@ -1,6 +1,7 @@
-# SOCD-ahk ![SOCD](SOCD.png)
+# SOCD-ahk
 An SOCD script recreated using AHK built to simulate hardware SOCD via AutoHotkey v2
-
+![SOCD](SOCD.png)
+NAI is a personal concept/identity created by Ncoder and is not a registered trademark or company.
 # SOCD-AHK Script
 
 An AutoHotkey v2 script that implements SOCD (Simultaneous Opposite Cardinal Direction) cleaning for keyboard input.  
