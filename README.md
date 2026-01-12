@@ -85,6 +85,9 @@ Restarting is not nessecary unless changing the ahk script itself
 
 ---
 
+> Note: This README is intentionally kept technical and minimal.  
+> The author is significantly more chaotic in real life.
+
 ## License
 
 This project is licensed under the **SOCD-AHK License**.  
