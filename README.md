@@ -1,6 +1,6 @@
 # Snaptivity
 An SOCD script recreated using AHK built to simulate hardware SOCD via AutoHotkey v2
-![SOCD](SOCD.png)
+![Snaptivity](Snaptivity.png)
 NAI is a personal concept/identity created by Ncoder and is not a registered trademark or company.
 # SOCD-AHK Script
 
@@ -87,7 +87,7 @@ Because of this design, using the script while typing will result in **double ch
 The SOCD-AHK script includes a built-in control panel that allows full configuration of all SOCD behavior in real time.  
 All changes are saved automatically when the window is closed.
 
-![SOCD Settings menu](SOCD-settings.png)
+![Snaptivity Settings menu](Snaptivity-Settings.png)
 
 ---
 
