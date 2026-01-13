@@ -1,4 +1,4 @@
-# SOCD-ahk
+# Snaptivity
 An SOCD script recreated using AHK built to simulate hardware SOCD via AutoHotkey v2
 ![SOCD](SOCD.png)
 NAI is a personal concept/identity created by Ncoder and is not a registered trademark or company.
@@ -32,9 +32,10 @@ https://www.autohotkey.com/
 
 ## Installation
 
-1. Clone or download this repository.
-2. Install AutoHotkey v2.
-3. Run the script:`SOCD.ahk` make sure its in an environment where a `config\` folder can be created optionally `SCOD.ini` inside too
+1. Get a release from https://github.com/Masid5434/Snaptivity/releases
+2. Unzip the zip file
+3. Run `Compiled\Snaptivity.zip` or `SOCD.ahk` based on your needs
+4. The script will create a `config` folder inside `SOCD.ini`
 5. Comply with the on-screen instructions to set the script ready (first time only)
 6. Press the SOCD key to toggle and the menu key to open the settings menu
 
