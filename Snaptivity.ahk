@@ -2,9 +2,11 @@
 #SingleInstance Force
 #UseHook
 
+A_MaxHotkeysPerInterval := 200
+
 ProcessSetPriority("High")
 
-#SingleInstance Force
+; Close existing CONTROL PANEL if any
 DetectHiddenWindows(true)
 if WinExist("Snaptivity CONTROL PANEL") {
     WinKill()
@@ -25,7 +27,7 @@ global physicalKeys := Map("w", false, "a", false, "s", false, "d", false)
 global currentSOD_H := ""   ; a / d
 global currentSOD_V := ""   ; w / s
 
-; Unified channel (ADDED)
+; Unified channel
 global currentSOD_All := ""
 
 ; Picker GUI state (Snaptivity toggle)
@@ -48,6 +50,18 @@ global absSplitVKey := ""
 ; Menu Gui
 global menuGui := ""
 
+; Engine latency profiler
+global traceLatency := false
+global latencySum := 0
+global latencyCount := 0
+global lastLatency := 0
+global t0 := 0
+global latencyAvg := 0
+
+; Latency OSD position offsets
+global latencyOffsetX := 0   ; move left/right
+global latencyOffsetY := 4   ; move up/down (positive = lower)
+
 ; ===== Drag System =====
 global isDragging   := false
 global dragGui := ""
@@ -61,6 +75,8 @@ OnMessage(0x201, WM_LBUTTONDOWN) ; left button down
 OnMessage(0x202, WM_LBUTTONUP)   ; left button up
 OnMessage(0x201, WM_LBUTTONDOWN) ; WM_LBUTTONDOWN = 0x201
 
+; block physicalKeys
+global blockPhysical := false
 
 ;special
 global isResettingKey := false
@@ -107,6 +123,7 @@ ShowEditOSD(msg, color := "00FFAA", duration := 4000) {
 global overrideMode := 1
 ;snappy mode
 global snappyMode := true  ; true = raw overlap, false = intent-based
+global trulySnappy := false ; didnt want to rewrite the boolean based conflict detection so just 2 strings now
 ;traytip
 global trayTipsEnabled := true
 ;tooltip
@@ -114,6 +131,7 @@ global toolTipMap := Map()
 global lastTTCtrl := ""
 ; Globalize this or wont run
 global cbDebug := ""
+global cbSnappy := ""
 
 OnMessage(0x200, WM_MOUSEMOVE)  ; 0x200 = WM_MOUSEMOVE
 
@@ -288,7 +306,41 @@ UpdateDebugOSD() {
 
 
     debugGui.Show("NoActivate x" hudX " y" hudY)
+    StickLatencyToHud()
 }
+
+; ===== LATENCY OSD =====
+global latencyGui := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20")
+latencyGui.BackColor := "000000"
+WinSetTransColor("000000", latencyGui)
+
+; small font, compact, readable
+latencyGui.SetFont("s9 Bold", "Segoe UI")
+
+global latencyText := latencyGui.AddText(
+    "w220 Center c00FF9C",
+    ""
+)
+UpdateLatencyOSD() {
+    global traceLatency, latencyCount, latencyAvg, lastLatency
+    global latencyGui, latencyText
+
+    if (!traceLatency || latencyCount = 0) {
+        latencyGui.Hide()
+        return
+    }
+
+    latencyText.Text :=
+        "⚡ " lastLatency " ms | Avg " Round(latencyAvg, 3) " ms | N " latencyCount
+
+    StickLatencyToHud()
+}
+
+
+
+
+
+latencyGui.Show("Hide")
 
 
 
@@ -316,12 +368,17 @@ InitConfig() {
         IniWrite("", configFile, "AbsolutePriority", "Unified")
         IniWrite("", configFile, "AbsolutePriority", "SplitH")
         IniWrite("", configFile, "AbsolutePriority", "SplitV")
-
+        IniWrite(0, configFile, "Advanced-Settings", "BlockPhysical")
+        IniWrite(0, configFile, "Advanced-Settings", "TraceLatency")
+        IniWrite(0, configFile, "HUD", "LatencyOffsetX")
+        IniWrite(4, configFile, "HUD", "LatencyOffsetY")
+        IniWrite(1, configFile, "Settings", "SnappyMode")
+        IniWrite(0, configFile, "Settings", "TrulySnappy")
     }
 }
 
 SaveConfig() {
-    global toggleKey, menuToggleKey, neutralizeMode, splitLanes, debugOverlay, hudX, hudY, keySize, configFile
+    global toggleKey, menuToggleKey, neutralizeMode, splitLanes, debugOverlay, hudX, hudY, keySize, latencyOffsetX, latencyOffsetY, traceLatency, configFile
 
     IniWrite(toggleKey, configFile, "Keys", "Snaptivity_Toggle")
     IniWrite(menuToggleKey, configFile, "Keys", "Menu_Toggle")
@@ -336,29 +393,46 @@ SaveConfig() {
     IniWrite(absUnifiedKey, configFile, "AbsolutePriority", "Unified")
     IniWrite(absSplitHKey,  configFile, "AbsolutePriority", "SplitH")
     IniWrite(absSplitVKey,  configFile, "AbsolutePriority", "SplitV")
-
+    IniWrite(blockPhysical, configFile, "Advanced-Settings", "BlockPhysical")
+    IniWrite(traceLatency, configFile, "Advanced-Settings", "TraceLatency")
+    IniWrite(latencyOffsetX, configFile, "HUD", "LatencyOffsetX")
+    IniWrite(latencyOffsetY, configFile, "HUD", "LatencyOffsetY")
+    IniWrite(trulySnappy, configFile, "Settings", "TrulySnappy")
 }
 
 LoadConfig() {
-    global toggleKey, menuToggleKey, neutralizeMode, splitLanes, debugOverlay, hudX, hudY, keySize, configFile
+    global toggleKey, menuToggleKey
+    global neutralizeMode, splitLanes, debugOverlay
+    global hudX, hudY, keySize
+    global snappyMode, trayTipsEnabled, blockPhysical
+    global absUnifiedKey, absSplitHKey, absSplitVKey
+    global traceLatency, latencyOffsetX, latencyOffsetY
 
-    toggleKey := IniRead(configFile, "Keys", "Snaptivity_Toggle", "")
-    menuToggleKey := IniRead(configFile, "Keys", "Menu_Toggle", "")
+    toggleKey       := IniLoadD("Keys", "Snaptivity_Toggle", "", "string")
+    menuToggleKey   := IniLoadD("Keys", "Menu_Toggle", "", "string")
 
-    neutralizeMode := IniRead(configFile, "Settings", "NeutralizeMode", 0)
-    splitLanes := IniRead(configFile, "Settings", "SplitLanes", 1)
-    debugOverlay := IniRead(configFile, "Settings", "DebugOverlay", 0)
+    neutralizeMode  := IniLoadD("Settings", "NeutralizeMode", 0, "bool")
+    splitLanes      := IniLoadD("Settings", "SplitLanes", 1, "bool")
+    debugOverlay    := IniLoadD("Settings", "DebugOverlay", 0, "int")
 
-    hudX := IniRead(configFile, "HUD", "X", hudX)
-    hudY := IniRead(configFile, "HUD", "Y", hudY)
-    keySize := IniRead(configFile, "HUD", "KeySize", keySize)
+    snappyMode      := IniLoadD("Settings", "SnappyMode", 1, "bool")
+    trayTipsEnabled := IniLoadD("Settings", "TrayTips", 1, "bool")
+    blockPhysical   := IniLoadD("Settings", "BlockPhysical", 0, "bool")
 
-    snappyMode := IniRead(configFile, "Settings", "SnappyMode", 1)
-    trayTipsEnabled := IniRead(configFile, "Settings", "TrayTips", 1) + 0
+    hudX := IniLoadD("HUD", "X", 40, "int")
+    hudY := IniLoadD("HUD", "Y", 220, "int")
+    keySize := IniLoadD("HUD", "KeySize", 46, "int")
 
-    absUnifiedKey := IniRead(configFile, "AbsolutePriority", "Unified", "")
-    absSplitHKey  := IniRead(configFile, "AbsolutePriority", "SplitH", "")
-    absSplitVKey  := IniRead(configFile, "AbsolutePriority", "SplitV", "")
+    absUnifiedKey := IniLoadD("AbsolutePriority", "Unified", "", "string")
+    absSplitHKey  := IniLoadD("AbsolutePriority", "SplitH", "", "string")
+    absSplitVKey  := IniLoadD("AbsolutePriority", "SplitV", "", "string")
+
+    traceLatency := IniLoadD("Advanced-Settings", "TraceLatency", 0, "bool")
+
+    latencyOffsetX := IniLoadD("HUD", "LatencyOffsetX", 0, "int")
+    latencyOffsetY := IniLoadD("HUD", "LatencyOffsetY", 4, "int")
+
+    trulySnappy := IniLoadD("Settings", "TrulySnappy", 0, "bool")
 
     return (toggleKey != "" && menuToggleKey != "")
 }
@@ -400,14 +474,22 @@ HideOSD() {
 ; ======================================================
 
 InitConfig()
-if LoadConfig() {
+LoadConfig()
+ApplySnappyState()
+
+if (toggleKey != "" && menuToggleKey != "") {
     Hotkey("$" toggleKey, (*) => ToggleSZOD())
     Hotkey("$" menuToggleKey, (*) => ShowMenu())
+    UpdateDebugOSD()
+    UpdateOSD()
     ShowTrayTip("Snaptivity SCRIPT", "⚡ Config loaded from /config/Snaptivity.ini", 2000)
 } else {
     ShowTogglePicker()
     UpdateDebugOSD()
+    UpdateLatencyOSD()
 }
+SetTimer(ForceHUDRedraw, 1000)
+SetTimer(ForceAlwaysOnTop, 1000)
 
 ; ======================================================
 ; HOTKEYS (PHYSICAL CAPTURE)
@@ -425,8 +507,27 @@ if LoadConfig() {
 ~*w up::HandleSOD_V("w", false)
 ~*s up::HandleSOD_V("s", false)
 
-
 ; ======================================================
+; HOTKEYS (BLOCKED PHYSICAL)
+; ======================================================
+
+#HotIf (szodActive && blockPhysical)
+
+; Horizontal
+*a::HandleSOD_H("a", true)
+*d::HandleSOD_H("d", true)
+*a up::HandleSOD_H("a", false)
+*d up::HandleSOD_H("d", false)
+
+; Vertical
+*w::HandleSOD_V("w", true)
+*s::HandleSOD_V("s", true)
+*w up::HandleSOD_V("w", false)
+*s up::HandleSOD_V("s", false)
+
+#HotIf
+
+; ========================================================= (haha)
 ; Snaptivity TOGGLE
 ; ======================================================
 
@@ -438,11 +539,11 @@ ToggleSZOD(*) {
 
     if (!szodActive) {
         if (currentSOD_H != "")
-            Send("{" currentSOD_H " up}")
+            TraceSend("{Blind}{" currentSOD_H " up}")
         if (currentSOD_V != "")
-            Send("{" currentSOD_V " up}")
+            TraceSend("{Blind}{" currentSOD_V " up}")
         if (currentSOD_All != "")
-            Send("{" currentSOD_All " up}")
+            TraceSend("{Blind}{" currentSOD_All " up}")
 
         currentSOD_H := ""
         currentSOD_V := ""
@@ -462,29 +563,51 @@ ToggleSZOD(*) {
 ; ======================================================
 
 HandleSOD_H(key, isDown) {
-    global splitLanes, szodActive, physicalKeys
+    global szodActive, blockPhysical, physicalKeys, splitLanes
+    global traceLatency, t0
 
+    if (traceLatency)
+        t0 := A_TickCount
+    
+    ; Always update physical state
     physicalKeys[key] := isDown
 
-    if (!szodActive) {
-        UpdateDebugOSD()
+    ; HUD always reacts
+    UpdateDebugOSD()
+
+    ; If Snaptivity is OFF → pure physical mode
+    if (!szodActive)
         return
+
+    ; If Snaptivity is ON
+    ; Decide whether raw physical leaks or not
+    if (!blockPhysical) {
+        TraceSend("{Blind}{" key (isDown ? " down" : " up") "}")
     }
 
+    ; Engine logic
     if (splitLanes)
         HandleSplitH(key, isDown)
     else
         HandleUnifiedSOD(key, isDown)
 }
 
+
 HandleSOD_V(key, isDown) {
-    global splitLanes, szodActive, physicalKeys
+    global szodActive, blockPhysical, physicalKeys, splitLanes
+    global traceLatency, t0
+
+    if (traceLatency)
+        t0 := A_TickCount
 
     physicalKeys[key] := isDown
+    UpdateDebugOSD()
 
-    if (!szodActive) {
-        UpdateDebugOSD()
+    if (!szodActive)
         return
+
+    if (!blockPhysical) {
+        TraceSend("{Blind}{" key (isDown ? " down" : " up") "}")
     }
 
     if (splitLanes)
@@ -492,6 +615,7 @@ HandleSOD_V(key, isDown) {
     else
         HandleUnifiedSOD(key, isDown)
 }
+
 
 ; ======================================================
 ; SPLIT-LANE HANDLERS
@@ -514,9 +638,9 @@ HandleSplitH(key, isDown) {
         ; 1 = Last input wins
         if (overrideMode = 1 && isDown) {
             if (currentSOD_H != "")
-                Send("{" currentSOD_H " up}")
+                TraceSend("{Blind}{" currentSOD_H " up}")
             currentSOD_H := key
-            Send("{" key " down}")
+            TraceSend("{Blind}{" key " down}")
             UpdateDebugOSD()
             return
         }
@@ -524,7 +648,7 @@ HandleSplitH(key, isDown) {
         ; 2 = First input wins
         else if (overrideMode = 2) {
             if (neutralizeMode && key != currentSOD_H)
-                Send("{" key " up}")
+                TraceSend("{Blind}{" key " up}")
             UpdateDebugOSD()
             return
         }
@@ -532,7 +656,7 @@ HandleSplitH(key, isDown) {
         ; 3 = Disable both
         else if (overrideMode = 3) {
             if (currentSOD_H != "") {
-                Send("{" currentSOD_H " up}")
+                TraceSend("{Blind}{" currentSOD_H " up}")
                 currentSOD_H := ""
             }
             UpdateDebugOSD()
@@ -544,17 +668,17 @@ HandleSplitH(key, isDown) {
             if (isDown) {
                 if (key != absSplitHKey) {
                     ; illegal key, kill it
-                    Send("{" key " up}")
+                    TraceSend("{Blind}{" key " up}")
                     UpdateDebugOSD()
                     return
                 } else {
                     ; ABS key pressed → assert authority
                     if (currentSOD_H != absSplitHKey) {
                         if (currentSOD_H != "")
-                            Send("{" currentSOD_H " up}")
+                            TraceSend("{Blind}{" currentSOD_H " up}")
 
                         currentSOD_H := absSplitHKey
-                        Send("{" absSplitHKey " down}")
+                        TraceSend("{Blind}{" absSplitHKey " down}")
                         UpdateDebugOSD()
                     }
                     return
@@ -562,7 +686,7 @@ HandleSplitH(key, isDown) {
             } else {
                 ; ABS released → clear SOD
                 if (key = absSplitHKey && currentSOD_H = absSplitHKey) {
-                    Send("{" absSplitHKey " up}")
+                    TraceSend("{Blind}{" absSplitHKey " up}")
                     currentSOD_H := ""
                     UpdateDebugOSD()
                     return
@@ -581,20 +705,20 @@ HandleSplitH(key, isDown) {
     if (isDown) {
         if (currentSOD_H != key) {
             if (currentSOD_H != "")
-                Send("{" currentSOD_H " up}")
+                TraceSend("{Blind}{" currentSOD_H " up}")
             currentSOD_H := key
-            Send("{" key " down}")
+            TraceSend("{Blind}{" key " down}")
         }
     } else { 
         if (currentSOD_H == key) {
-            Send("{" key " up}")
+            TraceSend("{Blind}{" key " up}")
             currentSOD_H := ""
             ; 🔥 THIS IS THE LOST LINE THAT CAUSED EVERYTHING AHHHHHH
             if (!neutralizeMode) {
                 for k in ["a","d"] {
                     if (physicalKeys[k]) {
                         currentSOD_H := k
-                        Send("{" k " down}")
+                        TraceSend("{Blind}{" k " down}")
                         break
                     }
                 }
@@ -623,9 +747,9 @@ HandleSplitV(key, isDown) {
         ; 1 = Last input wins
         if (overrideMode = 1 && isDown) {
             if (currentSOD_V != "")
-                Send("{" currentSOD_V " up}")
+                TraceSend("{Blind}{" currentSOD_V " up}")
             currentSOD_V := key
-            Send("{" key " down}")
+            TraceSend("{Blind}{" key " down}")
             UpdateDebugOSD()
             return
         }
@@ -633,7 +757,7 @@ HandleSplitV(key, isDown) {
         ; 2 = First input wins
         else if (overrideMode = 2) {
             if (neutralizeMode && key != currentSOD_V)
-                Send("{" key " up}")
+                TraceSend("{Blind}{" key " up}")
             UpdateDebugOSD()
             return
         }
@@ -641,7 +765,7 @@ HandleSplitV(key, isDown) {
         ; 3 = Disable both
         else if (overrideMode = 3) {
             if (currentSOD_V != "") {
-                Send("{" currentSOD_V " up}")
+                TraceSend("{Blind}{" currentSOD_V " up}")
                 currentSOD_V := ""
             }
             UpdateDebugOSD()
@@ -652,22 +776,22 @@ HandleSplitV(key, isDown) {
         else if (overrideMode = 4 && absSplitVKey != "") {
             if (isDown) {
                 if (key != absSplitVKey) {
-                    Send("{" key " up}")
+                    TraceSend("{Blind}{" key " up}")
                     UpdateDebugOSD()
                     return
                 } else {
                     if (currentSOD_V != absSplitVKey) {
                         if (currentSOD_V != "")
-                            Send("{" currentSOD_V " up}")
+                            TraceSend("{Blind}{" currentSOD_V " up}")
                         currentSOD_V := absSplitVKey
-                        Send("{" absSplitVKey " down}")
+                        TraceSend("{Blind}{" absSplitVKey " down}")
                     }
                     UpdateDebugOSD()
                     return
                 }
             } else {
                 if (key = absSplitVKey && currentSOD_V = absSplitVKey) {
-                    Send("{" absSplitVKey " up}")
+                    TraceSend("{Blind}{" absSplitVKey " up}")
                     currentSOD_V := ""
                     UpdateDebugOSD()
                     return
@@ -684,19 +808,19 @@ HandleSplitV(key, isDown) {
     if (isDown) {
         if (currentSOD_V != key) {
             if (currentSOD_V != "")
-                Send("{" currentSOD_V " up}")
+                TraceSend("{Blind}{" currentSOD_V " up}")
             currentSOD_V := key
-            Send("{" key " down}")
+            TraceSend("{Blind}{" key " down}")
         }
     } else {
         if (currentSOD_V == key) {
-            Send("{" key " up}")
+            TraceSend("{Blind}{" key " up}")
             currentSOD_V := ""
             if (!neutralizeMode) {
                 for k in ["w","s"] {
                     if (physicalKeys[k]) {
                         currentSOD_V := k
-                        Send("{" k " down}")
+                        TraceSend("{Blind}{" k " down}")
                         break
                     }
                 }
@@ -726,9 +850,9 @@ HandleUnifiedSOD(key, isDown) {
         ; 1 = Last input wins
         if (overrideMode = 1 && isDown) {
             if (currentSOD_All != "")
-                Send("{" currentSOD_All " up}")
+                TraceSend("{Blind}{" currentSOD_All " up}")
             currentSOD_All := key
-            Send("{" key " down}")
+            TraceSend("{Blind}{" key " down}")
             UpdateDebugOSD()
             return
         }
@@ -736,7 +860,7 @@ HandleUnifiedSOD(key, isDown) {
         ; 2 = First input wins
         else if (overrideMode = 2) {
             if (neutralizeMode && key != currentSOD_All)
-                Send("{" key " up}")
+                TraceSend("{Blind}{" key " up}")
             UpdateDebugOSD()
             return
         }
@@ -744,7 +868,7 @@ HandleUnifiedSOD(key, isDown) {
         ; 3 = Disable both
         else if (overrideMode = 3) {
             if (currentSOD_All != "") {
-                Send("{" currentSOD_All " up}")
+                TraceSend("{Blind}{" currentSOD_All " up}")
                 currentSOD_All := ""
             }
             UpdateDebugOSD()
@@ -755,22 +879,22 @@ HandleUnifiedSOD(key, isDown) {
         else if (overrideMode = 4 && absUnifiedKey != "") {
             if (isDown) {
                 if (key != absUnifiedKey) {
-                    Send("{" key " up}")
+                    TraceSend("{Blind}{" key " up}")
                     UpdateDebugOSD()
                     return
                 } else {
                     if (currentSOD_All != absUnifiedKey) {
                         if (currentSOD_All != "")
-                            Send("{" currentSOD_All " up}")
+                            TraceSend("{Blind}{" currentSOD_All " up}")
                         currentSOD_All := absUnifiedKey
-                        Send("{" absUnifiedKey " down}")
+                        TraceSend("{Blind}{" absUnifiedKey " down}")
                     }
                     UpdateDebugOSD()
                     return
                 }
             } else {
                 if (key = absUnifiedKey && currentSOD_All = absUnifiedKey) {
-                    Send("{" absUnifiedKey " up}")
+                    TraceSend("{Blind}{" absUnifiedKey " up}")
                     currentSOD_All := ""
                     UpdateDebugOSD()
                     return
@@ -787,19 +911,19 @@ HandleUnifiedSOD(key, isDown) {
     if (isDown) {
         if (currentSOD_All != key) {
             if (currentSOD_All != "")
-                Send("{" currentSOD_All " up}")
+                TraceSend("{Blind}{" currentSOD_All " up}")
             currentSOD_All := key
-            Send("{" key " down}")
+            TraceSend("{Blind}{" key " down}")
         }
     } else {
         if (currentSOD_All == key) {
-            Send("{" key " up}")
+            TraceSend("{Blind}{" key " up}")
             currentSOD_All := ""
             if (!neutralizeMode) {
                 for k in ["w","s"] {
                     if (physicalKeys[k]) {
                         currentSOD_All := k
-                        Send("{" k " down}")
+                        TraceSend("{Blind}{" k " down}")
                         break
                     }
                 }
@@ -976,8 +1100,9 @@ SetMenuToggleKey(*) {
 ShowMenu() {
     global neutralizeMode, debugOverlay, splitLanes
     global trayTipsEnabled, snappyMode, overrideMode
-    global isResettingKey, cbDebug
+    global isResettingKey, cbDebug, blockPhysical
     global absUnifiedKey, absSplitHKey, absSplitVKey
+    global trulySnappy
 
     global menuGui := Gui("+AlwaysOnTop -Caption +ToolWindow")
     menu := menuGui
@@ -986,9 +1111,12 @@ ShowMenu() {
     menu.SetFont("s11 Bold", "Segoe UI")
 
     ; ===== CUSTOM GAMER TITLE BAR (FLOW SAFE) =====
-    titleBar := menu.AddText("w300 h30 Center c00FFFF", "🎮 Snaptivity CONTROL PANEL")
-    titleBar.SetFont("s11 Bold")
+    titleBar := menu.AddText("w230 h30 Center c00FFFF", "🎮 Snaptivity CONTROL PANEL")
+    titleBar.SetFont("s11 Bold", "CopperPlate Gothic Bold")
     OnMessage(0x201, WM_LBUTTONDOWN)
+
+    titleIcon := menu.AddText("x6 y-2 w40 h48 Center c00FFFF", "🎮")
+    titleIcon.SetFont("s22 Bold", "Copperplate Gothic Bold")
 
     ; 🔁 REBIND BUTTONS
     btnRebindSnaptivity := menu.AddText(
@@ -1024,19 +1152,9 @@ ShowMenu() {
     ))
 
     ; Snappy mode
-    cbSnappy := menu.AddCheckbox("cFFAA00 w300", "⚡ Snappy Input Mode")
-    cbSnappy.Value := snappyMode
-    cbSnappy.OnEvent("Click", (*) => (
-        snappyMode := cbSnappy.Value,
-        ShowTrayTip(
-            "SOD SCRIPT",
-            snappyMode
-                ? "⚡ Snappy Mode ENABLED (Arcade Feel)"
-                : "🧠 Snappy Mode DISABLED (Clean / Intent)",
-            1500
-        ),
-        SaveConfig()
-    ))
+    global cbSnappy := menu.AddCheckbox("cFFAA00 w300", "⚡ Snappy Mode")
+    cbSnappy.OnEvent("Click", (*) => ToggleSnappyMode())
+    ApplySnappyState()
 
     ; Neutralize / Lock winner
     global cbNeutral := menu.AddCheckbox("c00FFAA w300", "🔥 Lock Winner Opposites (W+S / A+D)")
@@ -1129,6 +1247,20 @@ ShowMenu() {
     menu.Show("AutoSize Center")
     UpdateDebugCheckboxStyle()
 
+    ; ===== SETTINGS ICON (ADVANCED) =====
+    titleBar.GetPos(&tx, &ty, &tw, &th)
+
+    btnAdvanced := menu.AddButton(
+        "x" (300 - 10 - 6 - 34) " y" 8 " w30 h28",
+        "⚙"
+    )
+
+    btnAdvanced.Opt("Background333366 cFFFFFF")
+    btnAdvanced.OnEvent("Click", (*) => (
+        menu.Destroy(),
+        SetTimer(ShowAdvancedMenu, -10)
+    ))
+
     OverrideModeChanged({Value: overrideMode})
     
     ; ===== CLOSE BUTTON (ADD LAST SO IT DOESN’T BREAK FLOW) =====
@@ -1175,6 +1307,106 @@ ShowMenu() {
     )
 }
 
+ShowAdvancedMenu() {
+    global blockPhysical, cbLegacy, hudLatency, debugGui, t0, cbTraceLatency, traceLatency
+    global latencyCount, latencySum, lastLatency
+
+    advGui := Gui("+AlwaysOnTop -Caption +ToolWindow")
+    adv := advGui
+
+    adv.BackColor := "120B1F"
+    adv.SetFont("s11 Bold", "Segoe UI")
+
+    ; ===== TITLE BAR =====
+    title := adv.AddText("w300 h30 Center cFF66FF", "⚙ Advanced Engine Settings")
+    title.SetFont("s11 Bold")
+    OnMessage(0x201, WM_LBUTTONDOWN)
+
+    adv.AddText("w300 Center cFF4444", "⚠ DANGER ZONE ⚠")
+    adv.AddText("w300 Center c777777",
+        "These settings bypass Snaptivity safety systems.`n" .
+        "Only touch if you understand what you are doing."
+    )
+
+    ; =========================
+    ; LEGACY INPUT MODE
+    ; =========================
+    cbLegacy := adv.AddCheckbox(
+        "w300 cFFAA00",
+        "🧟 Legacy Input Mode (Allow Physical Passthrough)"
+    )
+
+    ; Logic:
+    ; blockPhysical = 1 → Engine Mode
+    ; blockPhysical = 0 → Legacy Mode
+    ; Checkbox ON  = Legacy (0)
+    ; Checkbox OFF = Engine (1)
+    cbLegacy.Value := !blockPhysical
+
+    cbLegacy.OnEvent("Click", (*) => LegacyToggle())
+
+    AttachToolTip(cbLegacy,
+        "⚠ Legacy Input Mode allows physical keyboard passthrough.`n" .
+        "This may cause:`n" .
+        "- Triple keystrokes (Previously Double)`n" .
+        "- Input desync`n" .
+        "- Unexpected behavior`n" .
+        "Use only for compatibility or debugging."
+    )
+
+    ; =========================
+    ; ENGINE LATENCY PROFILER
+    ; =========================
+    cbTraceLatency := adv.AddCheckbox("c00FF9C w300", "📊 Engine Latency Profiler")
+    cbTraceLatency.Value := traceLatency
+
+    cbTraceLatency.OnEvent("Click", (*) => (
+        traceLatency := cbTraceLatency.Value,
+
+        ; reset stats when turning ON so measurements are clean
+        traceLatency ? (
+            latencySum := 0,
+            latencyCount := 0,
+            lastLatency := 0
+        ) : "",
+
+        ShowTrayTip(
+            "ENGINE PROFILER",
+            traceLatency
+                ? "📊 Latency profiler ENABLED (measuring logic pipeline)"
+                : "📴 Latency profiler DISABLED",
+            1200
+        ),
+
+        UpdateDebugOSD(),
+        SaveConfig()
+    ))
+
+
+    ; =========================
+    ; BUTTONS
+    ; =========================
+
+    btnBack := adv.AddButton("w300 h32", "⬅ Back")
+    btnBack.OnEvent("Click", (*) => (
+        advGui.Destroy(),
+        SetTimer(ShowMenu, -10)
+    ))
+
+    ; Show first so overlay buttons don’t reserve space
+    adv.Show("AutoSize Center")
+
+    ; ===== CLOSE BUTTON OVERLAY =====
+    title.GetPos(&tx, &ty, &tw, &th)
+
+    btnClose := adv.AddButton(
+        "x" (300 - 10 - 6) " y" 8 " w30 h28",
+        "✖"
+    )
+    btnClose.Opt("BackgroundAA3333 cFFFFFF")
+    btnClose.OnEvent("Click", (*) => advGui.Destroy())
+}
+
 
 
 ; ======================================================
@@ -1201,6 +1433,7 @@ GetAllKeys() {
 ; ======================================================
 
 #HotIf adjustingHud
+
 Up::MoveHud(0, -5)
 Down::MoveHud(0, 5)
 Left::MoveHud(-5, 0)
@@ -1209,8 +1442,15 @@ Right::MoveHud(5, 0)
 NumpadAdd::ResizeHud(2)
 NumpadSub::ResizeHud(-2)
 
+Numpad4::AdjustLatencyOffset(-1, 0)
+Numpad6::AdjustLatencyOffset(1, 0)
+Numpad8::AdjustLatencyOffset(0, -1)
+Numpad2::AdjustLatencyOffset(0, 1)
+
 Enter::FinishHudAdjust()
+
 #HotIf
+
 
 MoveHud(dx, dy) {
     global hudX, hudY
@@ -1431,4 +1671,203 @@ UpdateDebugCheckboxStyle() {
         cbDebug.Opt("cFF66FF")
         cbDebug.Text := "🧪 Debug HUD (ULTRA ⚡)"
     }
+}
+ToggleSnappyMode() {
+    global snappyMode, trulySnappy, cbSnappy
+
+    ; OFF → ON → TRULY → OFF
+    if (!snappyMode && !trulySnappy) {
+        snappyMode := true
+        trulySnappy := false
+    }
+    else if (snappyMode && !trulySnappy) {
+        snappyMode := true
+        trulySnappy := true
+    }
+    else {
+        snappyMode := false
+        trulySnappy := false
+    }
+
+    ApplySnappyState()
+    SaveConfig()
+}
+
+ApplySnappyState() {
+    global snappyMode, trulySnappy, cbSnappy
+
+    ; Engine always applies
+    if (trulySnappy)
+        EnableEngineOverclock()
+    else
+        DisableEngineOverclock()
+
+    ; UI SAFETY GUARD
+    if !IsObject(cbSnappy)
+        return
+
+    ; UI
+    if (!snappyMode && !trulySnappy) {
+        cbSnappy.Value := 0
+        cbSnappy.Opt("c777777")
+        cbSnappy.Text := "⚡ Snappy Mode (OFF)"
+    }
+    else if (snappyMode && !trulySnappy) {
+        cbSnappy.Value := 1
+        cbSnappy.Opt("cFF9900")
+        cbSnappy.Text := "⚡ Snappy Mode (ON)"
+    }
+    else {
+        cbSnappy.Value := 1
+        cbSnappy.Opt("cFF3333")
+        cbSnappy.Text := "⚡ Snappy Mode (TRULY SNAPPY)"
+    }
+}
+
+
+IniLoadTranslator(value, type := "string") {
+    switch type {
+        case "bool":
+            return (value = "1" || value = 1 || value = true)
+        case "int":
+            return value + 0
+        case "float":
+            return value + 0.0
+        case "string":
+            return value ""
+        default:
+            return value
+    }
+}
+IniLoadD(section, key, default, type := "string") {
+    val := IniRead(configFile, section, key, default)
+    return IniLoadTranslator(val, type)
+}
+LegacyToggle() {
+    global cbLegacy, blockPhysical
+
+    ; First read UI
+    newValue := cbLegacy.Value
+
+    ; Then update engine
+    blockPhysical := !newValue
+
+    ; THEN save
+    SaveConfig()
+
+    ShowTrayTip(
+        "INPUT ENGINE",
+        blockPhysical
+            ? "⚡ Engine Mode (Physical BLOCKED)"
+            : "🧟 Legacy Mode (Physical PASSTHROUGH)",
+        1200
+    )
+}
+TraceSend(cmd) {
+    global traceLatency, lastLatency, latencyAvg, latencyCount
+
+    if (traceLatency)
+        t0 := QPC_Now()
+
+    Send(cmd)
+
+    if (traceLatency) {
+        t1 := QPC_Now()
+        delta := t1 - t0
+
+        lastLatency := Round(delta, 3)
+
+        if (latencyCount = 0)
+            latencyAvg := delta
+        else
+            latencyAvg := (latencyAvg * 0.85) + (delta * 0.15)
+
+        latencyCount++
+        UpdateLatencyOSD()
+    }
+}
+
+
+GetAvgLatency() {
+    global latencySum
+    return Round(latencySum, 3)
+}
+StickLatencyToHud() {
+    global latencyGui, debugGui, traceLatency, latencyCount
+    global latencyOffsetX, latencyOffsetY
+
+    if (!traceLatency || latencyCount = 0) {
+        latencyGui.Hide()
+        return
+    }
+
+    debugGui.GetPos(&x, &y, &w, &h)
+
+    newX := x + latencyOffsetX
+    newY := y + h + latencyOffsetY
+
+    latencyGui.Move(newX, newY)
+    latencyGui.Show("NoActivate")
+}
+AdjustLatencyOffset(dx, dy) {
+    global latencyOffsetX, latencyOffsetY
+
+    latencyOffsetX += dx
+    latencyOffsetY += dy
+
+    StickLatencyToHud()   ; instant visual update
+    SaveConfig()
+}
+QPC_Now() {
+    static freq := 0
+    if (!freq) {
+        DllCall("QueryPerformanceFrequency", "Int64*", &freq)
+    }
+    counter := 0
+    DllCall("QueryPerformanceCounter", "Int64*", &counter)
+    return counter * 1000.0 / freq   ; returns time in ms (float)
+}
+ForceRedraw(gui) {
+    gui.Show("NoActivate")
+    gui.Hide()
+    gui.Show("NoActivate")
+}
+ForceHUDRedraw() {
+    global debugGui, latencyGui, debugOverlay, traceLatency
+
+    ; Only redraw if they should exist
+    if (debugOverlay)
+        ForceRedraw(debugGui)
+
+    if (traceLatency)
+        ForceRedraw(latencyGui)
+}
+EnableEngineOverclock() {
+    A_BatchLines := -1
+    A_SendMode := "Input"
+    ProcessSetPriority("High")
+
+    SetKeyDelay(-1, -1)
+    SetMouseDelay(-1)
+    SetWinDelay(-1)
+    SetControlDelay(-1)
+}
+
+DisableEngineOverclock() {
+    A_BatchLines := 10
+    A_SendMode := "Input"
+    ProcessSetPriority("High")
+
+    SetKeyDelay(10, 10)
+    SetMouseDelay(10)
+    SetWinDelay(100)
+    SetControlDelay(20)
+}
+ForceAlwaysOnTop() {
+    global debugGui, latencyGui, osdGui, editOsdGui
+
+    try debugGui.Opt("+AlwaysOnTop")
+    try latencyGui.Opt("+AlwaysOnTop")
+    try osdGui.Opt("+AlwaysOnTop")
+    try editOsdGui.Opt("+AlwaysOnTop")
 }
