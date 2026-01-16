@@ -139,7 +139,7 @@ Switch back to normal mode to return to stable, single-character typing.
 The SOCD-AHK script includes a built-in control panel that allows full configuration of all SOCD behavior in real time.  
 All changes are saved automatically when the window is closed.
 
-![Snaptivity Settings menu](Snaptivity-Settings.png)
+![Snaptivity Settings menu](Assets/Snaptivity-settings.png)
 
 ---
 
@@ -282,7 +282,7 @@ Behavior: (Assuming `A` is the set key)
 
 ## ⚙️ Advanced Menu – Engine Control & Danger Zone
 
-[Advanced Menu image LOL LMAO if you read this your browser is bad lmao](Snaptivity-adv-menu.png)
+![Advanced Menu image LOL LMAO if you read this your browser is bad lmao](Assets/Snaptivity-adv-menu.png)
 
 The Advanced Menu exposes low-level engine switches that directly affect how Snaptivity processes input internally.  
 This is **not** for normal usage. These options exist for testing, debugging, stress experiments, and engine behavior research.
@@ -360,18 +360,18 @@ consider turning it off if you see StuckKeys that bypass checkstuck keys
 ---
 
 ### 💥 Crash Lab – Manual Crash Generator
-
+![Crash-lab](Assets/Snaptivity-crasher.png)
 Provides direct access to controlled crash types for testing engine recovery.
 
 Available crash types include:
-- Soft exception
+![- Soft exception
 - Hard process termination
 - Infinite loop freeze
 - Stack overflow
 - Memory exhaustion
 - Invalid DLL calls
 - Timer storms
-- Self-destruct & respawn
+- Self-destruct & respawn](Assets/Snaptivity-crashlist)
 
 Purpose:
 - Validate watchdog behavior
