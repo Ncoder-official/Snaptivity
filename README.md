@@ -1,4 +1,4 @@
-# Snaptivity
+# Snaptivity 
 An SOCD script recreated using AHK built to simulate hardware SOCD via AutoHotkey v2
 ![Snaptivity](Snaptivity.png)
 NAI is a personal concept/identity created by Ncoder and is not a registered trademark or company.
@@ -209,6 +209,65 @@ When enabled:
 ---
 
 ## Show WASD HUD Overlay  
+
+<table style="background:#000;border-radius:8px;padding:6px;border:1px solid #222;">
+  <tr>
+    <td></td>
+    <td style="
+      width:46px;height:46px;
+      border:1px solid #444;
+      border-radius:6px;
+      text-align:center;
+      font-weight:900;
+      font-family:Segoe UI, monospace;
+      color:#333;
+      background:#050505;
+      box-shadow:0 0 6px #111 inset;">
+      W
+    </td>
+    <td></td>
+  </tr>
+  <tr>
+    <td style="
+      width:46px;height:46px;
+      border:1px solid #444;
+      border-radius:6px;
+      text-align:center;
+      font-weight:900;
+      font-family:Segoe UI, monospace;
+      color:#333;
+      background:#050505;
+      box-shadow:0 0 6px #111 inset;">
+      A
+    </td>
+    <td style="
+      width:46px;height:46px;
+      border:1px solid #444;
+      border-radius:6px;
+      text-align:center;
+      font-weight:900;
+      font-family:Segoe UI, monospace;
+      color:#333;
+      background:#050505;
+      box-shadow:0 0 6px #111 inset;">
+      S
+    </td>
+    <td style="
+      width:46px;height:46px;
+      border:1px solid #444;
+      border-radius:6px;
+      text-align:center;
+      font-weight:900;
+      font-family:Segoe UI, monospace;
+      color:#333;
+      background:#050505;
+      box-shadow:0 0 6px #111 inset;">
+      D
+    </td>
+  </tr>
+</table>
+
+
 Displays a visual overlay showing:
 - Raw key inputs
 - Active SOCD state
@@ -221,6 +280,15 @@ Useful for:
 
 ### Cool fact v2
 > It now has modes try it and also figure out an easter egg I know you can.
+
+<details>
+<summary>Click to reveal easter egg</summary>
+
+Press `W`, `A`, `S` and `D` at the same time!
+
+</details>
+
+
 ---
 
 ## Override Mode  
@@ -361,6 +429,7 @@ consider turning it off if you see StuckKeys that bypass checkstuck keys
 
 ### 💥 Crash Lab – Manual Crash Generator
 ![Crash-lab](Assets/Snaptivity-crasher.png)
+
 Provides direct access to controlled crash types for testing engine recovery.
 
 Available crash types include:
