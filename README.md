@@ -282,7 +282,7 @@ Behavior: (Assuming `A` is the set key)
 
 ## ⚙️ Advanced Menu – Engine Control & Danger Zone
 
-![Advanced Menu image LOL LMAO if you read this your browser is bad lmao](Snaptivity-adv-settings.png)
+![Advanced Menu image LOL LMAO if you read this your browser is bad lmao](Assets/Snaptivity-adv-settings.png)
 
 The Advanced Menu exposes low-level engine switches that directly affect how Snaptivity processes input internally.  
 This is **not** for normal usage. These options exist for testing, debugging, stress experiments, and engine behavior research.
