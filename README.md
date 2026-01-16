@@ -72,12 +72,41 @@ Do **NOT** use this script in competitive online games such as:
 
 These games may consider SOCD behavior as unauthorized input modification.
 
-## ⚠️ Important Notice 2 – Text Input
+## 🛠️ Input Handling Update – Bug Fixed + Legacy Mode Behavior
 
-This script is **not recommended for use in textboxes or typing fields**.
+The triple-character input issue has been **fully fixed** in the default input system.  
+SOCD-AHK now correctly processes directional key events without causing duplicated or multiplied characters while typing.
 
-The SOCD-AHK system works by duplicating and managing directional key events internally in order to correctly resolve conflicting inputs.  
-Because of this design, using the script while typing will result in **double characters**.
+In normal mode:
+- Textboxes and typing fields work as expected  
+- Only **single characters** are produced  
+- No more input cloning, no more keyboard chaos  
+
+However…
+
+### 🧪 Legacy Input Mode
+
+A **Legacy Input Mode** toggle is available for compatibility and testing purposes.
+
+When Legacy Input Mode is enabled:
+- The old input behavior is restored partially  
+- Directional key handling follows the original system  
+- Typing in textboxes may produce **triple characters** instead of the original **double characters**  
+
+This is intentional.
+
+Legacy mode exists for:
+- Backward compatibility  
+- Debugging  
+- Testing previous SOCD logic  
+- Summoning the ancient bugs (optional) 🐉⌨️  
+
+If you see triple characters:  
+You are not experiencing a bug.  
+You have activated **Legacy Input Mode**.
+
+Switch back to normal mode to return to stable, single-character typing.
+
 
 
 ---
