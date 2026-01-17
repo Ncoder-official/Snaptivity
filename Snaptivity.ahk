@@ -1,3 +1,4 @@
+; A
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 #UseHook
@@ -19,7 +20,7 @@ global szodActive := false
 global toggleKey := ""
 
 ; Physical key states
-global physicalKeys := Map("w", false, "a", false, "s", false, "d", false)
+global physicalKeys := Map("w", false, "a", false, "s", false, "d", false) ; This stayed since the dinasours because it was the begining
 
 ; Split lane channels
 global currentSOD_H := ""   ; a / d
@@ -172,9 +173,6 @@ for dir in [CrashBaseDir, CrashRecoveredDir, CrashFailedDir] {
 ; Lcrash
 global LastCrashError := ""
 OnError(CaptureCrashError)
-
-; make watchdog here global
-global watchdogFile := CoreDir "\watchdog.mem"
 
 global Safemod := true   ; true = supervision ON, false = UNCHAINED
 
@@ -360,6 +358,36 @@ UpdateDebugOSD() {
     debugGui.Show("NoActivate x" hudX " y" hudY)
     StickLatencyToHud()
 }
+GetDebugOSD() {
+    global physicalKeys, currentSOD_H, currentSOD_V, currentSOD_All, debugOverlay, splitLanes, szodActive
+
+    state := Map()
+
+    ; raw physical
+    state["physical"] := Map(
+        "w", physicalKeys["w"],
+        "a", physicalKeys["a"],
+        "s", physicalKeys["s"],
+        "d", physicalKeys["d"]
+    )
+
+    ; logical ownership
+    state["logical"] := Map(
+        "H", currentSOD_H,
+        "V", currentSOD_V,
+        "A", currentSOD_All
+    )
+
+    ; mode flags
+    state["engine"] := Map(
+        "Snaptivity", szodActive,
+        "SplitLanes", splitLanes,
+        "OverlayMode", debugOverlay
+    )
+
+    return state
+}
+
 
 ; ===== LATENCY OSD =====
 global latencyGui := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20")
@@ -590,13 +618,14 @@ GetRandomSafeColor() {
 ; START
 ; ======================================================
 
+if (A_IsCompiled) {
+    SetWorkingDir(A_ScriptDir "\..")
+} else {
+    SetWorkingDir(A_ScriptDir)
+}
+
 InitConfig()
 LoadConfig()
-if (Safemod){
-    LoadStateRAM()
-    SaveStateRAM()  ; ensure watchdog file exists atleast once (recommented)
-    SetTimer(SaveStateRAM, 500)
-}
 ApplySnappyState()
 CreateGradientOSD()
 SetTimer(() => MarkLastCrashRecovered(), -3000)
@@ -1044,7 +1073,7 @@ HandleUnifiedSOD(key, isDown) {
             TraceSend("{Blind}{" key " up}")
             currentSOD_All := ""
             if (!neutralizeMode) {
-                for k in ["w","s"] {
+                for k in ["w","a","s","d"] {
                     if (physicalKeys[k]) {
                         currentSOD_All := k
                         TraceSend("{Blind}{" k " down}")
@@ -1521,7 +1550,7 @@ ShowAdvancedMenu() {
     ; =========================
     ; 🛡️ SAFEMOD TOGGLE
     ; =========================
-    cbSafemod := adv.AddCheckbox("c66FF66 w300", "🛡️ SafeMode (Engine Supervision)")
+    cbSafemod := adv.AddCheckbox("c66FF66 w300", "🛡️ SafeMod (Engine Supervision)")
     cbSafemod.Value := Safemod
 
     cbSafemod.OnEvent("Click", (*) => (
@@ -1530,8 +1559,8 @@ ShowAdvancedMenu() {
         ShowTrayTip(
             "SAFEMOD",
             Safemod
-                ? "🛡️ SafeMode ENABLED (Crash protection & watchdog active)"
-                : "☠️ SafeMode DISABLED (UNCHAINED MODE)",
+                ? "🛡️ SafeMod ENABLED (Crash protection & watchdog active)"
+                : "☠️ SafeMod DISABLED (UNCHAINED MODE)",
             1400
         )
     ))
@@ -1574,17 +1603,17 @@ ForceCrash() {
     crashGui.AddText("cFF4444 w300 Center", "CHOOSE HOW YOU WANT TO CRASH 💀")
 
     ddl := crashGui.AddDropDownList("w300", [
-        "💥 Soft Crash (Exception)",
-        "💀 Hard Crash (TerminateProcess)",
-        "🌀 Freeze (Infinite Loop)",
-        "☠️ Exit(999) (Fake Crash)",
-        "🧨 Memory Corruption (Invalid Access)",
-        "⚡ Stack Overflow (Deep Recursion)",
-        "🧯 Resource Leak (RAM Bomb)",
-        "🕳️ Null Call (Invalid DLLCall)",
-        "🧬 Thread Explosion (Timer Storm)",
-        "🧬 Atomic Timer Storm (Heavy Parallelism)",
-        "🪓 Self Destruct (Kill & Respawn)"
+        "💥 Soft Crash (Exception) || WEAK",
+        "💀 Hard Crash (TerminateProcess) || STRONG",
+        "🌀 Freeze (Infinite Loop) || WEAK",
+        "☠️ Exit(999) (Fake Crash) || HANDLED",
+        "🧨 Memory Corruption (Invalid Access) || WEAK",
+        "⚡ Stack Overflow (Deep Recursion) || STRONG",
+        "🧯 Resource Leak (RAM Bomb) || WEAK",
+        "🕳️ Null Call (Invalid DLLCall) || WEAK",
+        "🧬 Thread Explosion (Timer Storm) || WEAK",
+        "🧬 Atomic Timer Storm (Parallel writes) || WEAK",
+        "🪓 Self Destruct (Kill & Respawn) || HANDLED"
     ])
     ddl.Value := 1
 
@@ -2027,25 +2056,60 @@ LegacyToggle() {
     )
 }
 TraceSend(cmd) {
-    global traceLatency, lastLatency, latencyAvg, latencyCount
+    global traceLatency, lastLatency, latencyAvg, latencyCount, Safemod
 
-    static lastTick := 0
-    static keyBurst := Map()
-    if (Safemod)
-        maxPerKey := 2   ; per key per frame
-    else
-        maxPerKey := 100   ; per key per frame
+    ; =========================
+    ; STATE
+    ; =========================
+    static keyCount := Map()
+    static frameCount := 0
+    static windowCount := 0
+    static lastFrame := 0
+    static lastWindow := 0
+    static blockUntil := 0
+
+    ; =========================
+    ; CONFIG (tuned to stay UNDER AHK panic)
+    ; =========================
+    if (Safemod) {
+        maxPerKey    := 100000      ; per key per frame
+        maxPerFrame  := 100000     ; total sends per ~16ms
+        maxPerWindow := 1000000    ; total sends per 100ms
+        cooldownMS := 50      ; Time taken to block inputs
+    } else {
+        maxPerKey    := 500000
+        maxPerFrame  := 3000000
+        maxPerWindow := 1000000
+    }
 
     now := A_TickCount
 
-    ; Reset every frame (~60 FPS)
-    if (now - lastTick > 16) {
-        keyBurst.Clear()
-        lastTick := now
+    ; ======================
+    ; COOLDOWN GATE
+    ; ======================
+    if (now < blockUntil)
+        return   ; full shutdown window
+
+    ; =========================
+    ; FRAME RESET (~60 FPS)
+    ; =========================
+    if (now - lastFrame > 16) {
+        keyCount.Clear()
+        frameCount := 0
+        lastFrame := now
     }
 
-    ; Extract key safely from "{Blind}{w down}"
-    ; Find the last {...}
+    ; =========================
+    ; FLOOD WINDOW RESET (100ms)
+    ; =========================
+    if (now - lastWindow > 100) {
+        windowCount := 0
+        lastWindow := now
+    }
+
+    ; =========================
+    ; EXTRACT KEY
+    ; =========================
     pos := InStr(cmd, "{", false, -1)
     if (pos) {
         part := SubStr(cmd, pos + 1)
@@ -2055,17 +2119,37 @@ TraceSend(cmd) {
         key := "_unknown"
     }
 
-    ; Init counter
-    if !keyBurst.Has(key)
-        keyBurst[key] := 0
+    if !keyCount.Has(key)
+        keyCount[key] := 0
 
-    ; Hard gate:
-    ; unlimited UP events
-    ; limited DOWN events
-    if (keyBurst[key] >= maxPerKey && !InStr(cmd, " up"))
+    ; =========================
+    ; LIMITER LAYERS
+    ; =========================
+
+    ; 1. Per-key limiter
+    if (keyCount[key] >= maxPerKey && !InStr(cmd, " up")) {
+        sleep(0)
         return
+    }
 
-    keyBurst[key]++
+    ; 2. Per-frame limiter
+    if (frameCount >= maxPerFrame) {
+        sleep(0)
+        return
+    }
+
+    ; 3. Rolling flood limiter (prevents AHK panic dialog)
+    if (windowCount >= maxPerWindow) {
+        sleep(0)
+        return
+    }
+
+    ; =========================
+    ; ACCEPT SEND
+    ; =========================
+    keyCount[key]++
+    frameCount++
+    windowCount++
 
     if (traceLatency)
         t0 := QPC_Now()
@@ -2077,7 +2161,6 @@ TraceSend(cmd) {
         delta := t1 - t0
 
         lastLatency := Round(delta, 3)
-
         if (latencyCount = 0)
             latencyAvg := delta
         else
@@ -2177,68 +2260,27 @@ if (Safemod)
     SetTimer(CheckStuckKeys, 190)
 
 CheckStuckKeys() {
-    global physicalKeys
+    global physicalKeys, currentSOD_H, currentSOD_V, currentSOD_All
 
     for k, v in physicalKeys {
-        if (v && !GetKeyState(k, "P")) {
-            physicalKeys[k] := false
+
+        logicalHeld :=
+            (k = currentSOD_H) ||
+            (k = currentSOD_V) ||
+            (k = currentSOD_All)
+
+        ; If logical says DOWN but physical says NO → kill logical
+        if (logicalHeld && !v) {
             Send("{Blind}{" k " up}")
+
+            if (currentSOD_H = k)
+                currentSOD_H := ""
+            if (currentSOD_V = k)
+                currentSOD_V := ""
+            if (currentSOD_All = k)
+                currentSOD_All := ""
         }
     }
-}
-SaveStateRAM() {
-    global watchdogFile
-    global currentSOD_H, currentSOD_V, currentSOD_All
-
-    ; make sure parent directory exists
-    SplitPath(watchdogFile, , &dir) ; this is magic idk how , , even works btu... it works... no touch this
-    if !DirExist(dir)
-        DirCreate(dir)
-
-    state :=
-    (
-    "H=" currentSOD_H "`n" .
-    "V=" currentSOD_V "`n" .
-    "A=" currentSOD_All
-    )
-
-    f := FileOpen(watchdogFile, "w")   ; creates or truncates       A      A       A        A       A        A   
-    f.Write(state)
-    f.Close()
-}
-
-
-LoadStateRAM() {
-    global watchdogFile
-    global currentSOD_H, currentSOD_V, currentSOD_All
-
-    if !FileExist(watchdogFile)
-        return false
-
-    try txt := FileRead(watchdogFile)
-    catch
-        return false
-
-    for line in StrSplit(txt, "`n") {
-        parts := StrSplit(line, "=")
-        if (parts.Length != 2)
-            continue
-
-        key := parts[1]
-        val := parts[2]
-
-        switch key {
-            case "Active":
-                szodActive := (val = "1")
-            case "H":
-                currentSOD_H := val
-            case "V":
-                currentSOD_V := val
-            case "A":
-                currentSOD_All := val
-        }
-    }
-    return true
 }
 
 if Safemod{
@@ -2246,30 +2288,23 @@ if Safemod{
     }
 
 HandleCrash(ExitReason, ExitCode) {
-    SaveStateRAM()
-    global suppressOSD := true
-
-    FileAppend(
-        "OnExit fired! Reason=" ExitReason " Code=" ExitCode "`n",
-        A_Temp "\snaptivity_exit_log.txt"
-    )
-
-    ; Allow normal exits ONLY if ExitCode = 0
-    if (ExitReason = "Exit" && ExitCode = 0)
+    ; classify exit
+    if (ExitReason = "Exit" && ExitCode = 0) {
         return
+    }
 
     if (ExitReason = "Reload"
      || ExitReason = "Menu"
      || ExitReason = "Close"
-     || ExitReason = "Single")
+     || ExitReason = "Single") {
         return
+    }
 
-    ; Log crash details
-    LogCrash(ExitReason, ExitCode)
-
-    ; Everything else = crash → revive
-    Run('"' A_ScriptFullPath '"')
+    ; everything else = crash
+    crash := "CRASH|" ExitReason "|Code=" ExitCode "|PID=" DllCall("GetCurrentProcessId")
 }
+
+
 LogCrash(ExitReason, ExitCode) {
     global CrashFailedDir
     global LastCrashError
@@ -2435,21 +2470,21 @@ CreateGradientOSD() {
     osdColors := [
         "FF0000","FF0055","FF00AA","CC00FF","8800FF",
         "4400FF","0044FF","0088FF","00CCFF","00FFCC",
-        "00FF88","00FF44","66FF00","99FF00" ; idk why but this isnt useful at all but if i dont keep this stuff breaks so no
-    ]
-
-    x := 0
-    Loop StrLen(word) {
-        char := SubStr(word, A_Index, 1)
-        c := osdColors[A_Index]
-
-        txt := osdGui.AddText("x" x " y0 c" c, char)
-        osdLetters.Push(txt)
-
-        txt.GetPos(,, &w,)
-        x += w
-    }
-}
+        "00FF88","00FF44","66FF00","99FF00" ; idk why but this isnt useful at all but if i dont keep this stuff breaks so no                                                                                                                                                                             
+    ]                                                                                                                                                                            
+                                                                                                                                                                             
+    x := 0                                                                                                                                                                           
+    Loop StrLen(word) {                                                                                                                                                                              
+        char := SubStr(word, A_Index, 1)                                                                               ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;                                                               
+        c := osdColors[A_Index]                                                                                        ;                              ;                                                      
+                                                                                                                       ;    ;;;;;         ;;;;;       ;                        
+        txt := osdGui.AddText("x" x " y0 c" c, char)                                                                   ;    ;;;;;         ;;;;;       ;                                                                           
+        osdLetters.Push(txt)                                                                                           ;                              ;                                                   
+                                                                                                                       ;       ;;;;;     ;;;;;        ;                       
+        txt.GetPos(,, &w,)                                                                                             ;            ;;;;;             ;                                               
+        x += w                                                                                                         ;            ;;;;;             ;                                   
+    }                                                                                                                  ;                              ;                           
+}                                                                                                                      ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;                                                      
 
 UpdateGradientOSD() {
     global osdLetters, osdColors, cbNcoder, gradientTarget
@@ -2462,25 +2497,40 @@ UpdateGradientOSD() {
             txt.Opt("c" osdColors[i])
     }
     else if (gradientTarget = "ncoder") {
-        ; Checkbox only has ONE color → take first gradient color
-        try cbNcoder.Opt("c" osdColors[1])
-    }
-}
-
-StartGradientOSD() {
+        ; Checkbox only has ONE color → take first gradient color                                                                                                                                                                                                                                       
+        try cbNcoder.Opt("c" osdColors[1])                                                                                                                                                                                                                                      
+    }                                                                                                                                                                                                                                       
+}                                                                                                                                                                                                                                       
+                                                                                                                                                                                        ;;               ;;
+StartGradientOSD() {                                                                                                                                                                        ;;                                                                
     global gradientTimerRunning
-    if (gradientTimerRunning)
-        return
+    if (gradientTimerRunning)                                                                                                                                                               ;              ;;  ;;
+        return                                                                                                                                                                            ;;  ;;
+                                                                                                                                                                        ;;  ;;
+    gradientTimerRunning := true                                                                                                                                                                              ;;  ;;
+    SetTimer(UpdateGradientOSD, 16)   ; In ms                                                                                                                                                  ; ;   ;;                      ;;  ;; HEHE
+}                                                                                                                                                                             ;;  ;;
+                                                                                                                                                                        ;;  ;;
+StopGradientOSD() {                                                                                                                                                                           ; ;    ; ;
+    global gradientTimerRunning                                                                                                                                                                           ; ;    ; ;
+    if (!gradientTimerRunning)                                                                                                                                                                           ; ;    ; ;
+        return                                                                                                                                                                           ; ;    ; ;
+                                                                                                                                                                           ; ;    ; ;
+    gradientTimerRunning := false                                                                                                                                                                           ; ;    ; ;
+    SetTimer(UpdateGradientOSD, 0)                                                                                                                                                                           ; ;    ; ;
+}                                                                                                                                                                           ; ;    ; ;
 
-    gradientTimerRunning := true
-    SetTimer(UpdateGradientOSD, 16)   ; In ms
-}
 
-StopGradientOSD() {
-    global gradientTimerRunning
-    if (!gradientTimerRunning)
-        return
 
-    gradientTimerRunning := false
-    SetTimer(UpdateGradientOSD, 0)
-}
+; ⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷
+; ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+; ⣿⣿⣿⡟⠉⠉⠉⠉⢻⣿⣿⣿⣿⡟⠉⠉⠉⠉⢻⣿⣿⣿
+; ⣿⣿⣿⡇ 🟢⠀ ⢸⣿⣿⣿⣿⡇⠀🔥⠀⢸⣿⣿⣿
+; ⣿⣿⣿⣇⣀⣀⣀⣀⡸⠿⠿⠿⠿⢇⣀⣀⣀⣀⣸⣿⣿⣿
+; ⣿⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿
+; ⣿⣿⣿⣿⣿⣿⠉⠉⠁⠀⠀⠀⠀⠈⠉⠉⣿⣿⣿⣿⣿⣿
+; ⣿⣿⣿⣿⣿⣿⠀⠀⠀ ⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿
+; ⣿⣿⣿⣿⣿⣿⠀⠀⣶⣶⣶⣶⣶⣶⠀⠀⣿⣿⣿⣿⣿⣿
+; ⣿⣿⣿⣿⣿⣿⣶⣾⣿⣿⣿⣿⣿⣿⣷⣶⣿⣿⣿⣿⣿⣿
+; ⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿
+
