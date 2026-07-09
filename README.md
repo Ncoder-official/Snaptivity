@@ -10,6 +10,21 @@ Simply software snap-tap.
 
 ---
 
+## Keywords
+
+People may know this feature by different names:
+
+- SOCD
+- SOCD Cleaner
+- Snap Tap
+- Null Movement
+- Keyboard Priority
+- WASD Cleaner
+- Counter-Strike style null movement
+- Fighting game SOCD
+
+---
+
 ## Features
 
 ### Core Input Engine
