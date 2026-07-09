@@ -2058,116 +2058,158 @@ LegacyToggle() {
 TraceSend(cmd) {
     global traceLatency, lastLatency, latencyAvg, latencyCount, Safemod
 
-    ; =========================
-    ; STATE
-    ; =========================
+    ; =====================================================
+    ; PERSISTENT STATE
+    ; =====================================================
     static keyCount := Map()
+    static cmdCache := Map()
+
     static frameCount := 0
     static windowCount := 0
+
     static lastFrame := 0
     static lastWindow := 0
+
     static blockUntil := 0
 
-    ; =========================
-    ; CONFIG (tuned to stay UNDER AHK panic)
-    ; =========================
+    static latencyGuiTick := 0
+
+    ; =====================================================
+    ; LIMITS
+    ; =====================================================
     if (Safemod) {
-        maxPerKey    := 100000      ; per key per frame
-        maxPerFrame  := 100000     ; total sends per ~16ms
-        maxPerWindow := 1000000    ; total sends per 100ms
-        cooldownMS := 50      ; Time taken to block inputs
+        maxPerKey    := 256
+        maxPerFrame  := 2048
+        maxPerWindow := 8192
+        cooldownMS   := 30
     } else {
-        maxPerKey    := 500000
-        maxPerFrame  := 3000000
-        maxPerWindow := 1000000
+        maxPerKey    := 4096
+        maxPerFrame  := 32768
+        maxPerWindow := 65536
+        cooldownMS   := 0
     }
 
     now := A_TickCount
 
-    ; ======================
-    ; COOLDOWN GATE
-    ; ======================
+    ; =====================================================
+    ; COOLDOWN
+    ; =====================================================
     if (now < blockUntil)
-        return   ; full shutdown window
+        return
 
-    ; =========================
-    ; FRAME RESET (~60 FPS)
-    ; =========================
-    if (now - lastFrame > 16) {
+    ; =====================================================
+    ; RESET FRAME COUNTERS
+    ; =====================================================
+    if ((now - lastFrame) >= 16) {
         keyCount.Clear()
         frameCount := 0
         lastFrame := now
     }
 
-    ; =========================
-    ; FLOOD WINDOW RESET (100ms)
-    ; =========================
-    if (now - lastWindow > 100) {
+    ; =====================================================
+    ; RESET WINDOW COUNTER
+    ; =====================================================
+    if ((now - lastWindow) >= 100) {
         windowCount := 0
         lastWindow := now
     }
 
-    ; =========================
-    ; EXTRACT KEY
-    ; =========================
-    pos := InStr(cmd, "{", false, -1)
-    if (pos) {
-        part := SubStr(cmd, pos + 1)
-        part := RegExReplace(part, "[{}]", "")
-        key := StrSplit(part, " ")[1]
+    ; =====================================================
+    ; CACHE KEY PARSE
+    ; =====================================================
+    if cmdCache.Has(cmd) {
+
+        key := cmdCache[cmd]
+
     } else {
-        key := "_unknown"
+
+        pos := InStr(cmd, "{", false, -1)
+
+        if pos {
+
+            part := SubStr(cmd, pos + 1)
+            part := StrReplace(part, "{")
+            part := StrReplace(part, "}")
+
+            space := InStr(part, " ")
+
+            if space
+                key := SubStr(part, 1, space - 1)
+            else
+                key := part
+
+        } else {
+
+            key := "_unknown"
+
+        }
+
+        cmdCache[cmd] := key
     }
 
     if !keyCount.Has(key)
         keyCount[key] := 0
 
-    ; =========================
-    ; LIMITER LAYERS
-    ; =========================
+    ; =====================================================
+    ; LIMITERS
+    ; =====================================================
 
-    ; 1. Per-key limiter
-    if (keyCount[key] >= maxPerKey && !InStr(cmd, " up")) {
-        sleep(0)
-        return
+    if (!InStr(cmd, " up")) {
+
+        if (keyCount[key] >= maxPerKey) {
+            blockUntil := now + cooldownMS
+            return
+        }
+
     }
 
-    ; 2. Per-frame limiter
     if (frameCount >= maxPerFrame) {
-        sleep(0)
+        blockUntil := now + cooldownMS
         return
     }
 
-    ; 3. Rolling flood limiter (prevents AHK panic dialog)
     if (windowCount >= maxPerWindow) {
-        sleep(0)
+        blockUntil := now + cooldownMS
         return
     }
 
-    ; =========================
-    ; ACCEPT SEND
-    ; =========================
     keyCount[key]++
     frameCount++
     windowCount++
 
-    if (traceLatency)
-        t0 := QPC_Now()
-
-    Send(cmd)
+    ; =====================================================
+    ; PROFILE SEND
+    ; =====================================================
 
     if (traceLatency) {
+
+        t0 := QPC_Now()
+
+        Send(cmd)
+
         t1 := QPC_Now()
+
         delta := t1 - t0
 
         lastLatency := Round(delta, 3)
-        if (latencyCount = 0)
+
+        if (!latencyCount)
             latencyAvg := delta
         else
-            latencyAvg := (latencyAvg * 0.85) + (delta * 0.15)
+            latencyAvg := latencyAvg * 0.85 + delta * 0.15
 
         latencyCount++
-        UpdateLatencyOSD()
+
+        ; Refresh GUI only 30 FPS
+        if ((now - latencyGuiTick) >= 33) {
+            latencyGuiTick := now
+            UpdateLatencyOSD()
+        }
+
+    } else {
+
+        Send(cmd)
+
     }
 }
 
