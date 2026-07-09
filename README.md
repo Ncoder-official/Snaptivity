@@ -1,11 +1,12 @@
 # Snaptivity 
-An SOCD script recreated using AHK built to simulate hardware SOCD via AutoHotkey v2
+An SOCD script recreated using AHK built to simulate hardware SOCD (Wooting) or Snap Tap (Razer) via AutoHotkey v2
 ![Snaptivity](Snaptivity.png)
 NAI is a personal concept/identity created by Ncoder and is not a registered trademark or company.
 # SOCD-AHK Script
 
 An AutoHotkey v2 script that implements SOCD (Simultaneous Opposite Cardinal Direction) cleaning for keyboard input.  
 Designed to provide consistent and predictable movement behavior in games and applications that rely on directional input.
+Simply software snap-tap.
 
 ---
 
@@ -279,7 +280,7 @@ Useful for:
 - Demonstrations
 
 ### Cool fact v2
-> It now has modes try it and also figure out an easter egg I know you can.
+> It now has modes try it and also figure out an easter egg, I know you can.
 
 <details>
 <summary>Click to reveal easter egg</summary>
@@ -469,6 +470,7 @@ Restarting is not nessecary unless changing the ahk script itself
 
 > Note: This README is intentionally kept technical and minimal.  
 > The author is significantly more chaotic in real life.
+> Star the repository if you like it because it helps more people see this work!
 
 ## License
 
