@@ -448,7 +448,7 @@ InitConfig() {
         IniWrite("", configFile, "AbsolutePriority", "Unified")
         IniWrite("", configFile, "AbsolutePriority", "SplitH")
         IniWrite("", configFile, "AbsolutePriority", "SplitV")
-        IniWrite(0, configFile, "Advanced-Settings", "BlockPhysical")
+        IniWrite(1, configFile, "Advanced-Settings", "BlockPhysical")
         IniWrite(0, configFile, "Advanced-Settings", "TraceLatency")
         IniWrite(0, configFile, "HUD", "LatencyOffsetX")
         IniWrite(4, configFile, "HUD", "LatencyOffsetY")
