@@ -75,7 +75,7 @@ https://www.autohotkey.com/
 
 1. Get a release from https://github.com/Ncoder-official/Snaptivity/releases
 2. Unzip the zip file
-3. Run `Compiled\Snaptivity.zip` or `Snaptivity.ahk` based on your needs
+3. Run `Compiled\Snaptivity.exe` or `Snaptivity.ahk` based on your needs
 4. The script will create a `config` folder, inside `Snaptivity.ini` and a `Core` folder
 5. Comply with the on-screen instructions to set the script ready (first time only)
 6. Press the SOCD key to toggle and the menu key to open the settings menu
