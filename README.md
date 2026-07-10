@@ -113,6 +113,8 @@ Do **NOT** use this script in competitive online games such as:
 
 These games may consider SOCD behavior as unauthorized input modification.
 
+>For reasons including cheating Snaptivity cannot add artificial random delay to bypass this.
+
 ## 🛠️ Input Handling Update – Bug Fixed + Legacy Mode Behavior
 
 The triple-character input issue has been **fully fixed** in the default input system.  
