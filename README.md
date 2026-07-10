@@ -116,7 +116,7 @@ These games may consider SOCD behavior as unauthorized input modification.
 ## 🛠️ Input Handling Update – Bug Fixed + Legacy Mode Behavior
 
 The triple-character input issue has been **fully fixed** in the default input system.  
-SOCD-AHK now correctly processes directional key events without causing duplicated or multiplied characters while typing.
+Snaptiviy now correctly processes directional key events without causing duplicated or multiplied characters while typing.
 
 In normal mode:
 - Textboxes and typing fields work as expected  
