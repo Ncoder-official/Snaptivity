@@ -63,6 +63,11 @@ global lastLatency := 0
 global t0 := 0
 global latencyAvg := 0
 
+; Lag Fix
+global hudDirty := false
+global latencyDirty := false
+global latencyFlushQueued := false
+
 ; Int Crash
 global intentionalCrash := false
 
@@ -282,9 +287,17 @@ debugGui.Hide()
 ; ======================================================
 
 UpdateDebugOSD() {
+    global hudDirty
+    hudDirty := true
+}
+
+FlushDebugOSD() {
+    global hudDirty
     global debugOverlay, debugGui, physicalKeys, szodActive, splitLanes
     global hudW, hudA, hudS, hudD, hudX, hudY
     global currentSOD_H, currentSOD_V, currentSOD_All
+
+    hudDirty := false
 
     if (!debugOverlay) {
         debugGui.Hide()
@@ -295,27 +308,18 @@ UpdateDebugOSD() {
     physColor       := "00FF00"   ; green
     idleColor       := "333333"   ; dark gray
 
-    ; =========================
-    ; BASE LAYER
-    ; =========================
     if (debugOverlay = 1 || debugOverlay = 3) {
-        ; Physical mode
         hudW.Opt("c" (physicalKeys["w"] ? physColor : idleColor))
         hudA.Opt("c" (physicalKeys["a"] ? physColor : idleColor))
         hudS.Opt("c" (physicalKeys["s"] ? physColor : idleColor))
         hudD.Opt("c" (physicalKeys["d"] ? physColor : idleColor))
-    }
-    else {
-        ; Logical-only base → idle background
+    } else {
         hudW.Opt("c" idleColor)
         hudA.Opt("c" idleColor)
         hudS.Opt("c" idleColor)
         hudD.Opt("c" idleColor)
     }
 
-    ; =========================
-    ; LOGICAL LAYER
-    ; =========================
     if (debugOverlay = 2 || debugOverlay = 3) {
         if (szodActive) {
             if (splitLanes) {
@@ -323,13 +327,11 @@ UpdateDebugOSD() {
                     hudW.Opt("c" SnaptivityColor)
                 if (currentSOD_V = "s")
                     hudS.Opt("c" SnaptivityColor)
-
                 if (currentSOD_H = "a")
                     hudA.Opt("c" SnaptivityColor)
                 if (currentSOD_H = "d")
                     hudD.Opt("c" SnaptivityColor)
-            }
-            else {
+            } else {
                 if (currentSOD_All = "w")
                     hudW.Opt("c" SnaptivityColor)
                 if (currentSOD_All = "a")
@@ -341,12 +343,8 @@ UpdateDebugOSD() {
             }
         }
     }
-    ; =========================
-    ; 🥚 EASTER EGG MODE
-    ; Hold W + A + S + D together → GOD MODE PURPLE HUD
-    ; =========================
-    eggColor := "FF00FF"  ; purple chaos energy
 
+    eggColor := "FF00FF"
     if (physicalKeys["w"] && physicalKeys["a"] && physicalKeys["s"] && physicalKeys["d"]) {
         hudW.Opt("c" eggColor)
         hudA.Opt("c" eggColor)
@@ -354,10 +352,10 @@ UpdateDebugOSD() {
         hudD.Opt("c" eggColor)
     }
 
-
     debugGui.Show("NoActivate x" hudX " y" hudY)
     StickLatencyToHud()
 }
+
 GetDebugOSD() {
     global physicalKeys, currentSOD_H, currentSOD_V, currentSOD_All, debugOverlay, splitLanes, szodActive
 
@@ -401,6 +399,7 @@ global latencyText := latencyGui.AddText(
     "w220 Center c00FF9C",
     ""
 )
+
 UpdateLatencyOSD() {
     global traceLatency, latencyCount, latencyAvg, lastLatency
     global latencyGui, latencyText
@@ -444,7 +443,7 @@ InitConfig() {
         IniWrite(220, configFile, "HUD", "Y")
         IniWrite(46, configFile, "HUD", "KeySize")
         IniWrite(1, configFile, "Settings", "SnappyMode")
-        IniWrite(1, configFile, "Settings", "TrayTips")
+        IniWrite(0, configFile, "Settings", "TrayTips")
         IniWrite("", configFile, "AbsolutePriority", "Unified")
         IniWrite("", configFile, "AbsolutePriority", "SplitH")
         IniWrite("", configFile, "AbsolutePriority", "SplitV")
@@ -614,6 +613,15 @@ GetRandomSafeColor() {
     return colors[r]
 }
 
+HUDTick() {
+    global hudDirty
+
+    if !hudDirty
+        return
+
+    FlushDebugOSD()
+}
+
 ; ======================================================
 ; START
 ; ======================================================
@@ -641,8 +649,9 @@ if (toggleKey != "" && menuToggleKey != "") {
     UpdateDebugOSD()
     UpdateLatencyOSD()
 }
-SetTimer(ForceHUDRedraw, 1000)
-SetTimer(ForceAlwaysOnTop, 1000)
+;SetTimer(ForceHUDRedraw, 1000)
+;SetTimer(ForceAlwaysOnTop, 1000)
+SetTimer(HUDTick, 8) ; ~125 FPS change to 16 for 60
 
 ; ======================================================
 ; HOTKEYS (PHYSICAL CAPTURE)
@@ -704,7 +713,7 @@ ToggleSZOD(*) {
     }
 
     ShowTrayTip(
-        "SOD SCRIPT",
+        "SNAPTIVITY",
         szodActive ? "🟢 Snaptivity MODE: ACTIVE" : "🔴 Snaptivity MODE: OFF",
         1200
     )
@@ -2058,25 +2067,15 @@ LegacyToggle() {
 TraceSend(cmd) {
     global traceLatency, lastLatency, latencyAvg, latencyCount, Safemod
 
-    ; =====================================================
-    ; PERSISTENT STATE
-    ; =====================================================
     static keyCount := Map()
     static cmdCache := Map()
-
     static frameCount := 0
     static windowCount := 0
-
     static lastFrame := 0
     static lastWindow := 0
-
     static blockUntil := 0
-
     static latencyGuiTick := 0
 
-    ; =====================================================
-    ; LIMITS
-    ; =====================================================
     if (Safemod) {
         maxPerKey    := 256
         maxPerFrame  := 2048
@@ -2091,128 +2090,77 @@ TraceSend(cmd) {
 
     now := A_TickCount
 
-    ; =====================================================
-    ; COOLDOWN
-    ; =====================================================
-    if (now < blockUntil)
-        return
+    Critical(10)
+    try {
+        if (now < blockUntil)
+            return
 
-    ; =====================================================
-    ; RESET FRAME COUNTERS
-    ; =====================================================
-    if ((now - lastFrame) >= 16) {
-        keyCount.Clear()
-        frameCount := 0
-        lastFrame := now
-    }
-
-    ; =====================================================
-    ; RESET WINDOW COUNTER
-    ; =====================================================
-    if ((now - lastWindow) >= 100) {
-        windowCount := 0
-        lastWindow := now
-    }
-
-    ; =====================================================
-    ; CACHE KEY PARSE
-    ; =====================================================
-    if cmdCache.Has(cmd) {
-
-        key := cmdCache[cmd]
-
-    } else {
-
-        pos := InStr(cmd, "{", false, -1)
-
-        if pos {
-
-            part := SubStr(cmd, pos + 1)
-            part := StrReplace(part, "{")
-            part := StrReplace(part, "}")
-
-            space := InStr(part, " ")
-
-            if space
-                key := SubStr(part, 1, space - 1)
-            else
-                key := part
-
-        } else {
-
-            key := "_unknown"
-
+        if ((now - lastFrame) >= 16) {
+            keyCount := Map()
+            frameCount := 0
+            lastFrame := now
         }
 
-        cmdCache[cmd] := key
-    }
+        if ((now - lastWindow) >= 100) {
+            windowCount := 0
+            lastWindow := now
+        }
 
-    if !keyCount.Has(key)
-        keyCount[key] := 0
+        key := cmdCache.Get(cmd, "")
+        if (key = "") {
+            pos := InStr(cmd, "{", false, -1)
+            if pos {
+                part := SubStr(cmd, pos + 1)
+                part := StrReplace(part, "{")
+                part := StrReplace(part, "}")
+                space := InStr(part, " ")
+                key := space ? SubStr(part, 1, space - 1) : part
+            } else {
+                key := "_unknown"
+            }
+            cmdCache[cmd] := key
+        }
 
-    ; =====================================================
-    ; LIMITERS
-    ; =====================================================
+        if !keyCount.Has(key)
+            keyCount[key] := 0
 
-    if (!InStr(cmd, " up")) {
-
-        if (keyCount[key] >= maxPerKey) {
+        if (!InStr(cmd, " up") && keyCount[key] >= maxPerKey) {
+            blockUntil := now + cooldownMS
+            return
+        }
+        if (frameCount >= maxPerFrame) {
+            blockUntil := now + cooldownMS
+            return
+        }
+        if (windowCount >= maxPerWindow) {
             blockUntil := now + cooldownMS
             return
         }
 
+        keyCount[key]++
+        frameCount++
+        windowCount++
+    } finally {
+        Critical("Off")
     }
-
-    if (frameCount >= maxPerFrame) {
-        blockUntil := now + cooldownMS
-        return
-    }
-
-    if (windowCount >= maxPerWindow) {
-        blockUntil := now + cooldownMS
-        return
-    }
-
-    keyCount[key]++
-    frameCount++
-    windowCount++
-
-    ; =====================================================
-    ; PROFILE SEND
-    ; =====================================================
 
     if (traceLatency) {
-
         t0 := QPC_Now()
-
         Send(cmd)
-
-        t1 := QPC_Now()
-
-        delta := t1 - t0
+        delta := QPC_Now() - t0
 
         lastLatency := Round(delta, 3)
-
-        if (!latencyCount)
-            latencyAvg := delta
-        else
-            latencyAvg := latencyAvg * 0.85 + delta * 0.15
-
+        latencyAvg := latencyCount ? latencyAvg * 0.85 + delta * 0.15 : delta
         latencyCount++
 
-        ; Refresh GUI only 30 FPS
         if ((now - latencyGuiTick) >= 33) {
             latencyGuiTick := now
             UpdateLatencyOSD()
         }
-
     } else {
-
         Send(cmd)
-
     }
 }
-
 
 
 GetAvgLatency() {
@@ -2220,8 +2168,25 @@ GetAvgLatency() {
     return Round(latencySum, 3)
 }
 StickLatencyToHud() {
-    global latencyGui, debugGui, traceLatency, latencyCount
-    global latencyOffsetX, latencyOffsetY
+    global latencyDirty, latencyFlushQueued, traceLatency
+    if (!traceLatency)
+        return
+
+    latencyDirty := true
+    if (!latencyFlushQueued) {
+        latencyFlushQueued := true
+        SetTimer(FlushLatencyToHud, -33)  ; max ~30 FPS
+    }
+}
+
+FlushLatencyToHud() {
+    global latencyDirty, latencyFlushQueued
+    global latencyGui, debugGui, traceLatency, latencyCount, latencyOffsetX, latencyOffsetY
+
+    latencyFlushQueued := false
+    if (!latencyDirty)
+        return
+    latencyDirty := false
 
     if (!traceLatency || latencyCount = 0) {
         latencyGui.Hide()
@@ -2229,13 +2194,10 @@ StickLatencyToHud() {
     }
 
     debugGui.GetPos(&x, &y, &w, &h)
-
-    newX := x + latencyOffsetX
-    newY := y + h + latencyOffsetY
-
-    latencyGui.Move(newX, newY)
+    latencyGui.Move(x + latencyOffsetX, y + h + latencyOffsetY)
     latencyGui.Show("NoActivate")
 }
+
 AdjustLatencyOffset(dx, dy) {
     global latencyOffsetX, latencyOffsetY
 
