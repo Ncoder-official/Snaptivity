@@ -505,7 +505,7 @@ LoadConfig() {
     debugOverlay    := IniLoadD("Settings", "DebugOverlay", 0, "int")
 
     snappyMode      := IniLoadD("Settings", "SnappyMode", 1, "bool")
-    trayTipsEnabled := IniLoadD("Settings", "TrayTips", 1, "bool")
+    trayTipsEnabled := IniLoadD("Settings", "TrayTips", 0, "bool")
     blockPhysical   := IniLoadD("Advanced-Settings", "BlockPhysical", 0, "bool")
 
     hudX := IniLoadD("HUD", "X", 40, "int")
@@ -525,7 +525,7 @@ LoadConfig() {
 
     ncoderMode := IniLoadD("Fun", "NcoderMode", 0, "bool")
 
-    Safemod := IniLoadD("Advanced-Settings", "Safemod", 0, "bool")
+    Safemod := IniLoadD("Advanced-Settings", "Safemod", 1, "bool")
 
     ; FORCE ENGINE STATE BEFORE UI EXISTS
     if (trulySnappy)
